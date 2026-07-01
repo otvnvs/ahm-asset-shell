@@ -182,7 +182,6 @@ const uninstallSelectedApp = async () => {
     closeContextMenu();
   }
 }
-
 const navigateTo = (route) => {
   if (selectedApp.value !== null) return;
   router.push(route)
