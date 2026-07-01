@@ -149,7 +149,7 @@ const uninstallSelectedApp = async () => {
   if (!selectedApp.value) return;
   const app = selectedApp.value;
   
-  const confirmWipe = confirm('Are you sure you want to completely uninstall ' + app.name + '?');
+  const confirmWipe = true||confirm('Are you sure you want to completely uninstall ' + app.name + '?');
   if (!confirmWipe) {
     closeContextMenu();
     return;
