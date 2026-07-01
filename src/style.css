@@ -1,4 +1,14 @@
 body{
 	margin:0px;
 }
+/* Disable the default mobile WebView tap highlight box globally */
+* {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
 
+/* Optional: Prevent blue selection boxes when holding text or icons */
+.app-item, .icon-wrapper, .action-btn {
+  -webkit-touch-callout: none; /* Disables the native iOS/Android popup save image menu */
+  user-select: none;           /* Disables standard browser text selection boxes */
+}
