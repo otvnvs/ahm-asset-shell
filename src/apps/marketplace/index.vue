@@ -259,7 +259,7 @@ const handleAppAction = async (app) => {
 }
 
 const handleAppUninstall = async (app) => {
-  const confirmEcosystemPurge = confirm(`Are you sure you want to completely uninstall ${app.name}? This removes all local files permanently.`)
+  const confirmEcosystemPurge = true;//confirm(`Are you sure you want to completely uninstall ${app.name}? This removes all local files permanently.`)
   if (!confirmEcosystemPurge) return
 
   app.isUninstalling = true
