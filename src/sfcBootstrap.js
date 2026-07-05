@@ -54,9 +54,20 @@ export async function bootstrapSfcApp() {
       logT('psv', `${k}|${relPath}->${resolved}`);
       return resolved;
     },
-    async handleModule(type, getContentData, path, options) {
-      return undefined;
-    }
+//    async handleModule(type, getContentData, path, options) {
+//      return undefined;
+//    }
+
+async handleModule(type, getContentData, path, options) {
+  // Catch JSON extensions manually
+  if (path.endsWith('.json')) {
+    const jsonText = await getContentData(false);
+    return JSON.parse(jsonText);
+  }
+  return undefined; 
+}
+
+
   };
 
   window.sfcLoaderOptions = options;

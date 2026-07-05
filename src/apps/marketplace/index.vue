@@ -128,10 +128,12 @@ import { fsApi, isNativeAndroidEnvironment } from '../../lib/fs/index.js'
 import { getAppsDirectory } from '../../lib/fs/constants.js'
 import { fetchMarketplaceRepositories, fetchAppManifest } from './api.js'
 import { installRepositoryToStorage } from './installer.js'
-import { uninstallRepositoryFromStorage } from './uninstaller.js' // New service module link
+import { uninstallRepositoryFromStorage } from './uninstaller.js'
+import { marketplaceCache } from './cache.js' // New centralized cache engine helper
 
 const router = useRouter()
 const loading = ref(false)
+const searchQuery = ref('')
 const marketplaceApps = ref([])
 const shellCompiler = inject('shellCompiler')
 let appsTargetDir = ''
@@ -149,20 +151,93 @@ const globalProgressPercent = computed(() => {
 
 const globalStatusMessage = computed(() => {
   const activeCount = installingApps.value.length
-  if (activeCount === 1) {
-    return `Installing 1 applet...`
-  }
-  return `Downloading and extracting ${activeCount} applications concurrently...`
+  return activeCount === 1 ? 'Installing 1 applet...' : `Processing ${activeCount} updates...`
+})
+
+// Fuzzy Regex Input Field Search Match Filter Execution
+const filteredMarketplaceApps = computed(() => {
+  if (!searchQuery.value.trim()) return marketplaceApps.value
+  
+  const cleanQuery = searchQuery.value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const fuzzyPattern = new RegExp(cleanQuery.split('').join('.*'), 'i')
+  
+  return marketplaceApps.value.filter(app => 
+    fuzzyPattern.test(app.name) || fuzzyPattern.test(app.id) || fuzzyPattern.test(app.owner)
+  )
 })
 
 onMounted(async () => {
   const isNative = await isNativeAndroidEnvironment()
   appsTargetDir = getAppsDirectory(isNative)
+  await loadEcosystemData()
 })
+
+// Combined Cache Loader and Local Workspace Aggregator
+const loadEcosystemData = async () => {
+  try {
+    // 1. Read files directly off local device storage layout
+    const localFsResponse = await fsApi.listDirectory(appsTargetDir)
+    const localFolderNames = (localFsResponse && localFsResponse.files) 
+      ? localFsResponse.files.filter(f => f.isDirectory).map(f => f.name) 
+      : []
+
+    // 2. Extract previous remote repository listings out of decentralized cache service
+    const remoteApps = marketplaceCache.get()
+
+    // 3. Mark live installation tracking values onto remote apps
+    const mappedRemoteApps = remoteApps.map(app => ({
+      ...app,
+      isAlreadyInstalled: localFolderNames.includes(app.id),
+      isInstalling: false,
+      isUninstalling: false,
+      progressPercent: 0,
+      statusMessage: ''
+    }))
+
+    // 4. Trace Local-Only Custom Apps (Created on-device or manually side-loaded)
+    const remoteSlugs = mappedRemoteApps.map(a => a.id)
+    const localOnlyApps = []
+
+    for (const folderName of localFolderNames) {
+      if (!remoteSlugs.includes(folderName)) {
+        let appName = folderName
+        let svgIcon = DEFAULT_APP_ICON
+        try {
+          const rawManifestText = await fsApi.readFile(`${appsTargetDir}/${folderName}/app.json`)
+          const manifest = JSON.parse(rawManifestText)
+          if (manifest.name) appName = manifest.name
+          if (manifest.svgContent) svgIcon = manifest.svgContent
+        } catch (e) {
+          console.warn(`No offline manifest layout profile resolved for custom workspace app: ${folderName}`)
+        }
+
+        localOnlyApps.push({
+          id: folderName,
+          name: appName,
+          owner: 'local',
+          fullName: `local/${folderName}`,
+          branch: 'workspace',
+          svgContent: svgIcon,
+          isInstalled: false,
+          isAlreadyInstalled: true,
+          isLocalOnly: true,
+          isInstalling: false,
+          isUninstalling: false,
+          progressPercent: 0,
+          statusMessage: ''
+        })
+      }
+    }
+
+    // Merge indices completely into a single grid array sheet
+    marketplaceApps.value = [...localOnlyApps, ...mappedRemoteApps]
+  } catch (err) {
+    console.error('Failed synthesizing cached ecosystem index mappings:', err)
+  }
+}
 
 const scanGitHubMarketplace = async () => {
   loading.value = true
-  marketplaceApps.value = []
   try {
     const localFsResponse = await fsApi.listDirectory(appsTargetDir)
     const localFolderNames = (localFsResponse && localFsResponse.files) 
@@ -170,7 +245,7 @@ const scanGitHubMarketplace = async () => {
       : []
     
     const repos = await fetchMarketplaceRepositories()
-    const resolvedApps = []
+    const freshRemoteIndex = []
     
     for (const repo of repos) {
       const branchName = repo.default_branch || 'main'
@@ -186,32 +261,31 @@ const scanGitHubMarketplace = async () => {
         console.warn(`Skipped manifest descriptor read for ${repo.name}`)
       }
       
-      const isAlreadyInstalled = localFolderNames.includes(cleanSlug)
-      resolvedApps.push({
+      freshRemoteIndex.push({
         id: cleanSlug,
         name: appName,
         owner: repo.owner.login,
         fullName: repo.full_name,
         branch: branchName,
-        svgContent: svgIcon,
-        isInstalled: false,
-        isAlreadyInstalled: isAlreadyInstalled,
-        isInstalling: false,
-        isUninstalling: false,
-        progressPercent: 0,
-        statusMessage: ''
+        svgContent: svgIcon
       })
     }
-    marketplaceApps.value = resolvedApps
+
+    // Persist remote listings inside designated local cache utility layer
+    marketplaceCache.set(freshRemoteIndex)
+    
+    // Refresh view data states
+    await loadEcosystemData()
   } catch (error) {
     console.error('Marketplace repository scanning failed:', error)
+    alert('Failed searching GitHub ecosystem networks. Reverting to cached indexes.')
   } finally {
     loading.value = false
   }
 }
 
 const handleAppAction = async (app) => {
-  if (app.isInstalled || app.isAlreadyInstalled) {
+  if (app.isLocalOnly || app.isInstalled || app.isAlreadyInstalled) {
     router.push('/apps/' + app.id)
     return
   }
@@ -265,13 +339,16 @@ const handleAppUninstall = async (app) => {
   app.isUninstalling = true
   
   try {
-    // Fire the isolated service utility module layer
     await uninstallRepositoryFromStorage(app, appsTargetDir, router, (percent, customMessage) => {
       app.progressPercent = percent
       app.statusMessage = customMessage
     })
 
-    app.isAlreadyInstalled = false
+    if (app.isLocalOnly) {
+      marketplaceApps.value = marketplaceApps.value.filter(a => a.id !== app.id)
+    } else {
+      app.isAlreadyInstalled = false
+    }
     
     setTimeout(() => {
       app.isUninstalling = false
@@ -290,6 +367,7 @@ const goHome = () => {
   router.push('/home')
 }
 </script>
+
 <style scoped>
 .app-container {
   min-height: 100vh;
