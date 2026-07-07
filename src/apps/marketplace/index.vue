@@ -1,4 +1,5 @@
 <!--src/views/Marketplace.vue-->
+<!--src/views/Marketplace.vue-->
 <template>
   <div class="app-container">
     <!--Component Navigation App Header Layer-->
@@ -13,73 +14,71 @@
 
     <!--Core Interactive View Context Layout Canvas-->
     <main class="content-body">
-      <!--Interactive Action Control / Progress Indicator Wrapper-->
+      
+      <!-- NEW: Dedicated Search Row Layer -->
+      <div class="search-zone">
+        <div class="search-input-wrapper">
+          <svg class="search-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input 
+            v-model="searchQuery" 
+            type="text" 
+            placeholder="Search remote and local applets..." 
+            class="search-field"
+          />
+          <button v-if="searchQuery" @click="searchQuery = ''" class="clear-search-btn">
+            &times;
+          </button>
+        </div>
+      </div>
+
+      <!--Interactive Action Control/Progress Indicator Wrapper-->
       <div class="action-control-zone">
-        <!--Global Unified Progress Status HUD (Visible when 1+ apps are downloading)-->
+        <!--Global Unified Progress Status HUD(Visible when 1+apps are downloading)-->
         <div v-if="globalInstallationActive" class="progress-container">
           <div class="progress-header">
-            <span class="status-msg">{{ globalStatusMessage }}</span>
-            <span class="status-percent">{{ globalProgressPercent }}%</span>
+            <span class="status-msg">{{globalStatusMessage}}</span>
+            <span class="status-percent">{{globalProgressPercent}}%</span>
           </div>
           <div class="progress-track">
             <div class="progress-bar" :style="{ width: globalProgressPercent + '%' }"></div>
           </div>
         </div>
-
         <!--Default Search Button Trigger-->
-        <button 
-          v-else 
-          class="scan-btn" 
-          @click="scanGitHubMarketplace" 
-          :disabled="loading"
-        >
-          {{ loading ? 'Scanning GitHub Ecosystem...' : 'Scan Remote Repositories' }}
+        <button v-else class="scan-btn" @click="scanGitHubMarketplace" :disabled="loading">
+          {{loading?'Scanning GitHub Ecosystem...':'Scan Remote Repositories'}}
         </button>
       </div>
 
       <!--Discovered Remote Application Catalog Grid-->
       <div class="market-grid">
-        <div 
-          v-for="app in marketplaceApps" 
-          :key="app.id" 
-          class="market-card" 
-          :class="{ 
-            'card-expanding-progress': app.isInstalling || app.isUninstalling,
-            'card-destructive-state': app.isUninstalling 
-          }"
-        >
+        <!-- CHANGED: Now looping over filteredMarketplaceApps instead of marketplaceApps -->
+        <div v-for="app in filteredMarketplaceApps" :key="app.id" class="market-card" :class="{ 
+              'card-expanding-progress': app.isInstalling || app.isUninstalling,
+              'card-destructive-state': app.isUninstalling 
+            }">
           <div class="card-main-content">
             <div class="market-icon-frame">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="app-icon" v-html="app.svgContent"></svg>
             </div>
             <div class="market-meta">
-              <span class="app-title">{{ app.name }}</span>
-              <span class="app-developer">by {{ app.owner }}</span>
+              <span class="app-title">{{app.name}}</span>
+              <span class="app-developer">by {{app.owner}}</span>
               <span v-if="app.isAlreadyInstalled && !app.isInstalling && !app.isUninstalling" class="installed-tag">Locally Installed</span>
             </div>
-            
-            <!-- Dynamic Side-by-Side Action Layout Slot -->
+            <!--Dynamic Side-by-Side Action Layout Slot-->
             <div class="action-button-group">
-              <!-- Destructive Uninstall Trigger (Only visible for installed, idle applets) -->
-              <button 
-                v-if="app.isAlreadyInstalled && !app.isInstalling && !app.isUninstalling"
-                class="uninstall-btn"
-                @click.stop="handleAppUninstall(app)"
-                title="Uninstall Applet"
-              >
+              <!--Destructive Uninstall Trigger(Only visible for installed,idle applets)-->
+              <button v-if="app.isAlreadyInstalled && !app.isInstalling && !app.isUninstalling" class="uninstall-btn" @click.stop="handleAppUninstall(app)" title="Uninstall Applet">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="trash-icon">
                   <polyline points="3 6 5 6 21 6"></polyline>
                   <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                 </svg>
               </button>
-
-              <!-- Main Action Trigger -->
-              <button 
-                class="action-btn" 
-                :class="{ 'btn-success': app.isInstalled || app.isAlreadyInstalled }" 
-                @click="handleAppAction(app)"
-                :disabled="app.isUninstalling || app.isInstalling"
-              >
+              <!--Main Action Trigger-->
+              <button class="action-btn" :class="{ 'btn-success': app.isInstalled || app.isAlreadyInstalled }" @click="handleAppAction(app)" :disabled="app.isUninstalling || app.isInstalling">
                 <span v-if="app.isInstalled || app.isAlreadyInstalled" class="success-content">
                   <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                     <polyline points="20 6 9 17 4 12"></polyline>
@@ -90,19 +89,12 @@
               </button>
             </div>
           </div>
-
-          <!-- Individual Item Micro Progress Track Inline Overlay (Shared for Install & Uninstall feedback) -->
+          <!--Individual Item Micro Progress Track Inline Overlay(Shared for Install&Uninstall feedback)-->
           <div v-if="app.isInstalling || app.isUninstalling" class="item-progress-zone">
             <div class="item-progress-track">
-              <div 
-                class="item-progress-bar" 
-                :class="{ 'bar-destructive': app.isUninstalling }"
-                :style="{ width: app.progressPercent + '%' }"
-              ></div>
+              <div class="item-progress-bar" :class="{ 'bar-destructive': app.isUninstalling }" :style="{ width: app.progressPercent + '%' }"></div>
             </div>
-            <span class="item-status-msg" :class="{ 'text-destructive': app.isUninstalling }">
-              {{ app.statusMessage }}
-            </span>
+            <span class="item-status-msg" :class="{ 'text-destructive': app.isUninstalling }">{{app.statusMessage}}</span>
           </div>
         </div>
 
@@ -113,13 +105,16 @@
         </div>
 
         <!--Safe-guarded Length Empty State Indicator Fallback-->
-        <div v-if="(!marketplaceApps || marketplaceApps.length === 0) && !loading" class="empty-state">
-          Tap the scanning interface above to search for uncompiled packages.
+        <!-- CHANGED: Checks filteredMarketplaceApps length to provide an accurate query empty state -->
+        <div v-if="(!filteredMarketplaceApps || filteredMarketplaceApps.length === 0) && !loading" class="empty-state">
+          <span v-if="searchQuery">No uncompiled applets match your query.</span>
+          <span v-else>Tap the scanning interface above to search for uncompiled packages.</span>
         </div>
       </div>
     </main>
   </div>
 </template>
+
 <script setup>
 import { ref, computed, onMounted, inject } from 'vue'
 import { useRouter } from 'vue-router'
@@ -719,5 +714,56 @@ const goHome = () => {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* -------------------------------------------------------------------------------- */
+/* search */
+/* -------------------------------------------------------------------------------- */
+.search-zone {
+  width: 100%;
+}
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.search-icon-svg {
+  position: absolute;
+  left: 14px;
+  width: 16px;
+  height: 16px;
+  color: #8e8e93;
+  pointer-events: none;
+}
+.search-field {
+  width: 100%;
+  height: 44px;
+  background-color: #16161a;
+  border: 1px solid #242429;
+  border-radius: 12px;
+  padding: 0 40px;
+  color: #ffffff;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease;
+}
+.search-field:focus {
+  border-color: #3a3a3f;
+}
+.clear-search-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #8e8e93;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 </style>
 
