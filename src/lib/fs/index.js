@@ -34,6 +34,25 @@ export async function isNativeAndroidEnvironment() {
 }
 
 export const fsApi = {
+    /**
+     * Queries the native JVM server layer to determine the active web root path modifier string.
+     */
+    async getWebRoot() {
+        const isNative = await isNativeAndroidEnvironment();
+        if (!isNative) {
+            return { relativeModifier: '', absolutePath: 'src/apps' };
+        }
+        
+        try {
+            const response = await fetch('/api/fs/webroot', { method: 'GET' });
+            if (!response.ok) throw new Error(`Server returned error status code: ${response.status}`);
+            const data = await response.json();
+            return data.web_root_path;
+        } catch (err) {
+            console.error("Failed to dynamically fetch web root context metrics:", err.message);
+            throw(err);
+        }
+    },
   async listDirectory(path = '') {
 	const isNative = await isNativeAndroidEnvironment();
 	if (!isNative) return mockFileSystem.list(path);
@@ -53,20 +72,6 @@ export const fsApi = {
 	if (!res.ok) throw new Error('Failed to load file contents: ' + res.statusText);
 	return res.text();
   },
-
-//  async writeFile(path, content) {
-//	const isNative = await isNativeAndroidEnvironment();
-//	if (!isNative) return mockFileSystem.write(path, content);
-//
-//	console.log('[Telemetry:FS] writeFile -> ' + path + ' (' + content.length + ' bytes)');
-//	const res = await fetch('/api/fs/write?path=' + encodeURIComponent(path), {
-//	  method: 'POST',
-//	  headers: { 'Content-Type': 'text/plain' },
-//	  body: content
-//	});
-//	if (!res.ok) throw new Error('API operation failed: ' + res.statusText);
-//	return res.json();
-//  },
 	async writeFile(path, content) {
 	  const isNative = await isNativeAndroidEnvironment();
 	  if (!isNative) return mockFileSystem.write(path, content);
@@ -192,6 +197,5 @@ export const fsApi = {
 	}
 	return await response.json();
   }
-
 };
 

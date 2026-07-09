@@ -119,21 +119,18 @@
 import { ref, computed, onMounted, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { DEFAULT_APP_ICON } from '../../lib/shell/constants.js'
-import { fsApi, isNativeAndroidEnvironment } from '../../lib/fs/index.js'
-import { getAppsDirectory } from '../../lib/fs/constants.js'
+import { fsApi } from '../../lib/fs/index.js'
 import { fetchMarketplaceRepositories, fetchAppManifest } from './api.js'
 import { installRepositoryToStorage } from './installer.js'
 import { uninstallRepositoryFromStorage } from './uninstaller.js'
-import { marketplaceCache } from './cache.js' // New centralized cache engine helper
+import { marketplaceCache } from './cache.js'
 
 const router = useRouter()
 const loading = ref(false)
 const searchQuery = ref('')
 const marketplaceApps = ref([])
 const shellCompiler = inject('shellCompiler')
-let appsTargetDir = ''
 
-// Global Aggregated Concurrent State Computations
 const installingApps = computed(() => marketplaceApps.value.filter(app => app.isInstalling))
 const globalInstallationActive = computed(() => installingApps.value.length > 0)
 
@@ -149,37 +146,36 @@ const globalStatusMessage = computed(() => {
   return activeCount === 1 ? 'Installing 1 applet...' : `Processing ${activeCount} updates...`
 })
 
-// Fuzzy Regex Input Field Search Match Filter Execution
 const filteredMarketplaceApps = computed(() => {
   if (!searchQuery.value.trim()) return marketplaceApps.value
-  
   const cleanQuery = searchQuery.value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const fuzzyPattern = new RegExp(cleanQuery.split('').join('.*'), 'i')
-  
-  return marketplaceApps.value.filter(app => 
-    fuzzyPattern.test(app.name) || fuzzyPattern.test(app.id) || fuzzyPattern.test(app.owner)
-  )
+  return marketplaceApps.value.filter(app => fuzzyPattern.test(app.name) || fuzzyPattern.test(app.id) || fuzzyPattern.test(app.owner))
 })
+
+// ◄ ZERO-KNOWLEDGE ALIGNMENT WIN: Both native sandboxing and standard web browser development models 
+// map directly from the uniform relative filesystem path 'src/apps'
+const appsTargetDir = 'src/apps';
 
 onMounted(async () => {
-  const isNative = await isNativeAndroidEnvironment()
-  appsTargetDir = getAppsDirectory(isNative)
   await loadEcosystemData()
 })
+const resolveCurrentAppsDirectory = async () => {
+  // Grabs the raw relative string directly ("www" or "Documents/MyHybridMobile/www")
+  const webRootModifier = await fsApi.getWebRoot(); 
 
-// Combined Cache Loader and Local Workspace Aggregator
+  // Since the backend never returns an empty string now, we construct the target path uniformly!
+  return `${webRootModifier}/src/apps`;
+};
+
 const loadEcosystemData = async () => {
   try {
-    // 1. Read files directly off local device storage layout
-    const localFsResponse = await fsApi.listDirectory(appsTargetDir)
-    const localFolderNames = (localFsResponse && localFsResponse.files) 
-      ? localFsResponse.files.filter(f => f.isDirectory).map(f => f.name) 
-      : []
-
-    // 2. Extract previous remote repository listings out of decentralized cache service
+    // Queries the native file endpoint relatively. Java automatically anchors this to the correct root!
+    const appsTargetDir = await resolveCurrentAppsDirectory(); // ◄ Dynamic Relative Resolution
+    const localFsResponse = await fsApi.listDirectory(appsTargetDir);
+    const localFolderNames = (localFsResponse && localFsResponse.files) ? localFsResponse.files.filter(f => f.isDirectory).map(f => f.name) : [];
     const remoteApps = marketplaceCache.get()
-
-    // 3. Mark live installation tracking values onto remote apps
+    
     const mappedRemoteApps = remoteApps.map(app => ({
       ...app,
       isAlreadyInstalled: localFolderNames.includes(app.id),
@@ -188,11 +184,10 @@ const loadEcosystemData = async () => {
       progressPercent: 0,
       statusMessage: ''
     }))
-
-    // 4. Trace Local-Only Custom Apps (Created on-device or manually side-loaded)
+    
     const remoteSlugs = mappedRemoteApps.map(a => a.id)
     const localOnlyApps = []
-
+    
     for (const folderName of localFolderNames) {
       if (!remoteSlugs.includes(folderName)) {
         let appName = folderName
@@ -205,7 +200,6 @@ const loadEcosystemData = async () => {
         } catch (e) {
           console.warn(`No offline manifest layout profile resolved for custom workspace app: ${folderName}`)
         }
-
         localOnlyApps.push({
           id: folderName,
           name: appName,
@@ -223,8 +217,6 @@ const loadEcosystemData = async () => {
         })
       }
     }
-
-    // Merge indices completely into a single grid array sheet
     marketplaceApps.value = [...localOnlyApps, ...mappedRemoteApps]
   } catch (err) {
     console.error('Failed synthesizing cached ecosystem index mappings:', err)
@@ -234,11 +226,9 @@ const loadEcosystemData = async () => {
 const scanGitHubMarketplace = async () => {
   loading.value = true
   try {
+    const appsTargetDir = await resolveCurrentAppsDirectory(); // ◄ Dynamic Relative Resolution
     const localFsResponse = await fsApi.listDirectory(appsTargetDir)
-    const localFolderNames = (localFsResponse && localFsResponse.files) 
-      ? localFsResponse.files.filter(f => f.isDirectory).map(f => f.name) 
-      : []
-    
+    const localFolderNames = (localFsResponse && localFsResponse.files) ? localFsResponse.files.filter(f => f.isDirectory).map(f => f.name) : []
     const repos = await fetchMarketplaceRepositories()
     const freshRemoteIndex = []
     
@@ -247,7 +237,6 @@ const scanGitHubMarketplace = async () => {
       const cleanSlug = repo.name.replace('ahm-applet-', '')
       let appName = cleanSlug
       let svgIcon = DEFAULT_APP_ICON
-      
       try {
         const manifest = await fetchAppManifest(repo.full_name, branchName)
         if (manifest.name) appName = manifest.name
@@ -255,21 +244,9 @@ const scanGitHubMarketplace = async () => {
       } catch (err) {
         console.warn(`Skipped manifest descriptor read for ${repo.name}`)
       }
-      
-      freshRemoteIndex.push({
-        id: cleanSlug,
-        name: appName,
-        owner: repo.owner.login,
-        fullName: repo.full_name,
-        branch: branchName,
-        svgContent: svgIcon
-      })
+      freshRemoteIndex.push({ id: cleanSlug, name: appName, owner: repo.owner.login, fullName: repo.full_name, branch: branchName, svgContent: svgIcon })
     }
-
-    // Persist remote listings inside designated local cache utility layer
     marketplaceCache.set(freshRemoteIndex)
-    
-    // Refresh view data states
     await loadEcosystemData()
   } catch (error) {
     console.error('Marketplace repository scanning failed:', error)
@@ -280,33 +257,34 @@ const scanGitHubMarketplace = async () => {
 }
 
 const handleAppAction = async (app) => {
+
   if (app.isLocalOnly || app.isInstalled || app.isAlreadyInstalled) {
     router.push('/apps/' + app.id)
     return
   }
-
+  
   if (app.isInstalling || app.isUninstalling) return
-
+  
   app.isInstalling = true
   app.progressPercent = 5
   app.statusMessage = 'Connecting stream allocations...'
   
   try {
+    const appsTargetDir = await resolveCurrentAppsDirectory(); // ◄ Dynamic Relative Resolution
+    // Triggers your refactored relative installer loop cleanly
     await installRepositoryToStorage(app, appsTargetDir, (percent, customMessage) => {
       app.progressPercent = percent
       app.statusMessage = customMessage
     })
-
+    
     app.progressPercent = 90
     app.statusMessage = 'Bootstrapping component context sandboxes...'
-    
     const computedDefaultRoute = '/apps/' + app.id
     const computedEntryFile = `./src/apps/${app.id}/index.vue`
     
     if (router.hasRoute(app.id)) {
       router.removeRoute(app.id)
     }
-    
     router.addRoute({
       name: app.id,
       path: computedDefaultRoute,
@@ -316,7 +294,6 @@ const handleAppAction = async (app) => {
     app.progressPercent = 100
     app.statusMessage = 'Activated!'
     app.isAlreadyInstalled = true
-    
     setTimeout(() => {
       app.isInstalling = false
     }, 1200)
@@ -328,29 +305,24 @@ const handleAppAction = async (app) => {
 }
 
 const handleAppUninstall = async (app) => {
-  const confirmEcosystemPurge = true;//confirm(`Are you sure you want to completely uninstall ${app.name}? This removes all local files permanently.`)
+  const confirmEcosystemPurge = true;
   if (!confirmEcosystemPurge) return
-
   app.isUninstalling = true
-  
   try {
     await uninstallRepositoryFromStorage(app, appsTargetDir, router, (percent, customMessage) => {
       app.progressPercent = percent
       app.statusMessage = customMessage
     })
-
     if (app.isLocalOnly) {
       marketplaceApps.value = marketplaceApps.value.filter(a => a.id !== app.id)
     } else {
       app.isAlreadyInstalled = false
     }
-    
     setTimeout(() => {
       app.isUninstalling = false
       app.progressPercent = 0
       app.statusMessage = ''
     }, 1200)
-
   } catch (err) {
     console.error(`[Ecosystem Uninstallation Transaction Aborted on ${app.id}]:`, err.message)
     alert(`Failed to clean applet assets: ${err.message}`)
