@@ -10,9 +10,6 @@ export function initKeyboardListeners() {
     // Intercept R key presses
     if (isModifierPressed && event.key.toLowerCase() === 'r') {
       event.preventDefault(); // Stop standard browser action
-      console.log('Development Shortcut: Forcing application layer location refresh...');
-      
-      // Forces a total browser runtime document location reset
       window.location.reload();
     }
   });

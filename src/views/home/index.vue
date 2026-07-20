@@ -2,16 +2,26 @@
 <div class="mobile-container" @click="closeContextMenu">
   <header class="app-header">
     <h1 class="header-title">Apps</h1>
-    <span class="status-dot" :class="{ 'offline': !isNative }"></span>
+    <span class="status-dot" :class="{ 'offline': !isHybrid }"></span>
   </header>
+
+  <div class="search-bar">
+    <input
+      v-model="searchQuery"
+      type="text"
+      class="search-input"
+      placeholder="Search apps..."
+    />
+  </div>
 
   <main class="app-grid">
     <!-- Touch and Context Interceptors injected directly onto items -->
-    <div 
-      v-for="app in apps" 
+    <div
+      v-for="app in filteredApps" 
       :key="app.id" 
       class="app-item"
       @touchstart="handleTouchStart($event, app)"
+      @touchmove="handleTouchMove($event)"
       @touchend="handleTouchEnd($event, app)"
       @mousedown="handleMouseDown($event, app)"
       @mouseup="handleMouseUp($event, app)"
@@ -41,25 +51,34 @@
 </div>
 </template>
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { scanForApps } from '../../lib/shell/index.js'
-import { isNativeAndroidEnvironment, fsApi } from '../../lib/fs/index.js'
-import { getAppsDirectory } from '../../lib/fs/constants.js'
+import { isAndroidHybrid, fsApi } from '../../lib/fs/index.js'
 import { initKeyboardListeners } from '../../lib/shell/keyboard.js'
 
 const router = useRouter()
 const apps = ref([])
-const isNative = ref(false)
-let pollingTimer = null 
-let isScanning = false 
+const isHybrid = ref(false)
+let pollingTimer = null
+let isScanning = false
 
-// Long Press & Context Menu State Variables
 const selectedApp = ref(null)
 const menuX = ref(0)
 const menuY = ref(0)
 let touchTimer = null
 let longPressTriggered = false
+let touchStartX = 0
+let touchStartY = 0
+let scrollDetected = false
+
+const searchQuery = ref('')
+
+const filteredApps = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return apps.value
+  return apps.value.filter(app => app.name.toLowerCase().includes(q))
+})
 
 const refreshApplicationPool = async () => {
   if (isScanning) return;
@@ -80,9 +99,18 @@ const refreshApplicationPool = async () => {
 
 onMounted(async () => {
   initKeyboardListeners()
-  isNative.value = await isNativeAndroidEnvironment()
+  isHybrid.value = await isAndroidHybrid()
   await refreshApplicationPool()
-  pollingTimer = setInterval(refreshApplicationPool, 3500)
+  // Polling for filesystem changes is only needed on AHM. In browser mode the
+  // grid refreshes on mount, after install, and via Vite HMR — no need to fetch
+  // apps.json + every app.json every 3.5s.
+  if (isHybrid.value) {
+    pollingTimer = setInterval(refreshApplicationPool, 3500)
+  }
+
+  if (window.__vite_hmr_applet__) {
+    window.__vite_hmr_applet__(refreshApplicationPool)
+  }
 })
 
 onUnmounted(() => {
@@ -91,13 +119,10 @@ onUnmounted(() => {
 })
 
 const openContextMenu = (event, app) => {
-  // Prevent system apps or core marketplaces from being removed
-  if (app.id === 'marketplace') return;
-  
+  if (!isHybrid.value) return;
+  if (app.builtIn) return;
   selectedApp.value = app
   longPressTriggered = true
-  
-  // Calculate spatial positioning bounds based on user interaction inputs
   const touch = event.touches ? event.touches[0] : event;
   menuX.value = Math.min(touch.clientX, window.innerWidth - 160)
   menuY.value = Math.min(touch.clientY, window.innerHeight - 80)
@@ -111,15 +136,30 @@ const closeContextMenu = () => {
 // Touch Handling Logic Maps for Hardware Mobile Deployments
 const handleTouchStart = (event, app) => {
   longPressTriggered = false
+  scrollDetected = false
+  const t = event.touches[0]
+  touchStartX = t.clientX
+  touchStartY = t.clientY
   if (touchTimer) clearTimeout(touchTimer)
   touchTimer = setTimeout(() => {
-    openContextMenu(event, app)
+    if (!scrollDetected) openContextMenu(event, app)
   }, 650) // Triggers hold milestone at 650ms
+}
+
+const handleTouchMove = (event) => {
+  if (scrollDetected) return
+  const t = event.touches[0]
+  const dx = t.clientX - touchStartX
+  const dy = t.clientY - touchStartY
+  if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+    scrollDetected = true
+    if (touchTimer) clearTimeout(touchTimer)
+  }
 }
 
 const handleTouchEnd = (event, app) => {
   if (touchTimer) clearTimeout(touchTimer)
-  if (!longPressTriggered) {
+  if (!longPressTriggered && !scrollDetected) {
     // If it was just a brief tap, handle standard navigation pipelines
     navigateTo(app.route)
   }
@@ -142,28 +182,23 @@ const handleMouseUp = (event, app) => {
   }
 }
 
-/**
- * Executes a POSIX wipe on the physical storage blocks via the client bridge
- */
 const uninstallSelectedApp = async () => {
   if (!selectedApp.value) return;
   const app = selectedApp.value;
-  
-  const confirmWipe = true||confirm('Are you sure you want to completely uninstall ' + app.name + '?');
-  if (!confirmWipe) {
+  /* skip
+  if (!confirm('Are you sure you want to completely uninstall ' + app.name + '?')) {
     closeContextMenu();
     return;
   }
+  */
 
   try {
-    const appsDir = getAppsDirectory(isNative.value);
+    const webRoot = await fsApi.getWebRoot();
+    const appsDir = webRoot ? `${webRoot}/src/apps` : 'src/apps';
     const targetFolder = appsDir + '/' + app.id;
-    console.log('[Home:Uninstall] Wiping application directory path: ' + targetFolder);
 
-    // 1. Remove files from physical storage drive partitions
     await fsApi.deleteItem(targetFolder);
 
-    // 2. Clear from market tracking manifests if they exist
     try {
       const registryPath = appsDir + '/installed.json';
       const rawRegistry = await fsApi.readFile(registryPath);
@@ -172,11 +207,9 @@ const uninstallSelectedApp = async () => {
       await fsApi.writeFile(registryPath, JSON.stringify(registry, null, 2));
     } catch (e) {}
 
-    // 3. Immediately pull updated file topology mappings
     await refreshApplicationPool();
-    console.log('[Home:Uninstall] File asset uninstalled successfully.');
   } catch (err) {
-    console.error('[Home:Uninstall] Target erasure sequence aborted:', err.message);
+    console.error('[Home:Uninstall] Failed:', err.message);
     alert('Failed to remove app assets: ' + err.message);
   } finally {
     closeContextMenu();
@@ -193,13 +226,17 @@ const navigateTo = (route) => {
 .header-title{margin:0;font-size:16px;font-weight:400;letter-spacing:0.05em;color:#8e8e93;text-transform:uppercase;}
 .status-dot{width:6px;height:6px;background-color:#30d158;border-radius:50%;transition:background-color 0.3s ease;}
 .status-dot.offline{background-color:#ff9500;}
-.app-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px 12px;padding:24px;}
+.app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:20px 12px;padding:24px;}
 .app-item{display:flex;flex-direction:column;align-items:center;cursor:pointer;user-select:none;transition:opacity 0.15s ease;-webkit-user-select:none;}
 .app-item:active{opacity:0.5;}
 .icon-wrapper{width:60px;height:60px;border-radius:16px;background-color:#16161a;border:1px solid #242429;display:flex;align-items:center;justify-content:center;margin-bottom:10px;}
 .app-icon{width:22px;height:22px;color:#ffffff;}
-.app-label{font-size:11px;font-weight:400;color:#8e8e93;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;letter-spacing:0.01em;}
-.empty-state{grid-column:span 4;text-align:center;color:#48484a;font-size:13px;padding-top:40px;}
+.app-label{font-size:11px;font-weight:400;color:#8e8e93;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:72px;letter-spacing:0.01em;}
+.empty-state{grid-column:1 / -1;text-align:center;color:#48484a;font-size:13px;padding-top:40px;}
+.search-bar{padding:0 24px 8px 24px;}
+.search-input{width:100%;box-sizing:border-box;padding:10px 14px;background:#16161a;border:1px solid #242429;border-radius:10px;color:#f3f4f6;font-size:14px;outline:none;transition:border-color 0.2s ease;}
+.search-input::placeholder{color:#48484a;}
+.search-input:focus{border-color:#3a3a3c;}
 
 /* Absolute Android-Style Floating Menu Overlays */
 .context-menu {

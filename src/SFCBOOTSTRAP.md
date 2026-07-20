@@ -12,12 +12,12 @@ The `sfcBootstrap.js` engine enables the application to boot and run directly fr
 *   **Asset Interception:** Fetches raw file strings asynchronously using native web requests (`fetch`) and extracts content streams for compilation.
 *   **Constructable Scoping:** Automatically injects scoped style markers compiled from `.vue` blocks into the active document document head block.
 *   **Custom Path Resolution (`pathResolve`):** Translates dynamic and relative module paths (e.g., `../views/home/index.vue` or `vue`) into normalized file locations relative to the running workspace root.
-*   **Telemetry Instrumentation:** Tracks and manages performance timelines, dependency topology maps, and network asset payloads within a global debugging store (`window.__sfc_trace__`).
+*   **Shared Runtime File Reader:** Uses `combinedFsRead` from `src/lib/fsRead.js` to read applet source from OPFS (persisted) with an in-memory fallback, consolidating the reader logic that was previously duplicated here and in `viteLoader.js`.
 
 ---
 
 ## 2. Boot Sequence Flow
-1.  **Initialize Instrumentation Stack:** Instantiates tracing models under `window.__sfc_trace__` for real-time performance auditing.
+1.  **Set Vue Global:** Assigns `window.Vue` and `window.__ahmVue__` so compiled applets can share the same Vue singleton via `lib/vue-shim.js`.
 2.  **Inject Router Core:** Loads the global client production bundle for `vue-router` directly into the document header context.
 3.  **Construct Cache Mapping:** Pins global references for `vue` and `vue-router` into a shared, isolated module registration bucket.
 4.  **Instantiate SFC Loader Module:** Configures retrieval rules, custom regex file sanitizers, and style context appenders.
@@ -34,5 +34,5 @@ To support a modular plug-and-play architecture, the bootstrapper was updated to
 ### Key Implementation Adjustments:
 *   **Asynchronous Scan Injection:** Integrated the application shell scanner (`scanForApps`) directly into the router's asynchronous initialization chain.
 *   **Decoupled Loader Factory:** Implemented a compiler factory bridge (`(filePath) => loadModule(filePath, options)`) which is passed directly down to the routing engine. This allows the router to compile dynamically injected `.vue` templates at runtime while sharing the exact same cache and instrumentation context as the main shell application.
-*   **Hot-Reload & Collision Guarding:** Cleaned routing boundaries to ensure that sub-applications can be scanned, registered, and re-injected on-the-fly via hash state routing parameters without throwing route collisions or crashing active telemetry logging frameworks.
+*   **Hot-Reload & Collision Guarding:** Cleaned routing boundaries to ensure that sub-applications can be scanned, registered, and re-injected on-the-fly via hash state routing parameters without throwing route collisions.
 

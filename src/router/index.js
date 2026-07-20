@@ -11,27 +11,22 @@ const router = createRouter({
   routes
 });
 
-/**
- * Dynamically injects scanned sub-applications into the active router instance.
- * Supports both Vite compile-time paths and sfc-loader runtime resolution.
- * @param {Array} appsList - Array of parsed sub-app definitions from scanForApps()
- * @param {Function} componentLoader - Loader function to compile .vue files on the fly
- */
 export function registerDynamicApps(appsList, componentLoader) {
   appsList.forEach(app => {
-    // 1. Remove route collision duplication if it was registered during a hot reload
     if (router.hasRoute(app.id)) {
       router.removeRoute(app.id);
     }
-
-    // 2. Add the dynamic route structure to the router instance
     router.addRoute({
       name: app.id,
       path: app.route,
-      // The component resolver dynamically fetches and compiles the target entry file
-      component: () => componentLoader(app.entryFile)
+      component: () => componentLoader(app)
     });
   });
+
+  // Catch-all added last so it never shadows any real route.
+  // Handles unknown routes (e.g. in-memory app gone after page reload).
+  if (router.hasRoute('not-found')) router.removeRoute('not-found');
+  router.addRoute({ name: 'not-found', path: '/:pathMatch(.*)*', redirect: '/home' });
 }
 
 export default router;

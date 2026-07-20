@@ -1,4 +1,3 @@
-//import { reactive, readonly, computed } from '../../../lib/vue/vue.esm-browser.prod.js';
 import { reactive, readonly, computed } from 'vue';
 
 // Private memory bucket handles compiler reference mapping
@@ -36,7 +35,6 @@ export const shellState = {
     
     setSharedVariable(key, value) {
       state.sharedDataPool[key] = value;
-      console.log(`[State Engine] Key updated: "${key}" set to`, value);
     },
 
     pushNotification(message, type = 'info') {

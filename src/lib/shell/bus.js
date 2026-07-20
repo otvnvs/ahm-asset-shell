@@ -1,7 +1,5 @@
-//import { ref } from '../../../lib/vue/vue.esm-browser.prod.js';
 import { ref } from 'vue'
 
-// Central reactive token tracking cross-module change events
 const refreshToken = ref(0);
 
 export const shellBus = {
@@ -10,7 +8,6 @@ export const shellBus = {
    */
   emitRefresh() {
     refreshToken.value += 1;
-    console.log(`[Shell Bus] Global refresh dispatched. Token incremented to: ${refreshToken.value}`);
   },
 
   /**

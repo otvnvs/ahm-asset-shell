@@ -1,0 +1,4 @@
+[
+  { "path": "src/apps/marketplace", "isDirectory": true },
+  { "path": "src/apps/about",       "isDirectory": true }
+]

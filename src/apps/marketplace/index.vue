@@ -1,8 +1,6 @@
 <!--src/views/Marketplace.vue-->
-<!--src/views/Marketplace.vue-->
 <template>
   <div class="app-container">
-    <!--Component Navigation App Header Layer-->
     <header class="view-header">
       <button class="back-btn" @click="goHome">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -12,20 +10,18 @@
       <h1 class="view-title">App Marketplace</h1>
     </header>
 
-    <!--Core Interactive View Context Layout Canvas-->
     <main class="content-body">
-      
-      <!-- NEW: Dedicated Search Row Layer -->
+
       <div class="search-zone">
         <div class="search-input-wrapper">
           <svg class="search-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <input 
-            v-model="searchQuery" 
-            type="text" 
-            placeholder="Search remote and local applets..." 
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search remote and local applets..."
             class="search-field"
           />
           <button v-if="searchQuery" @click="searchQuery = ''" class="clear-search-btn">
@@ -34,9 +30,12 @@
         </div>
       </div>
 
-      <!--Interactive Action Control/Progress Indicator Wrapper-->
+      <div v-if="errorMessage" class="error-banner">
+        <span>{{ errorMessage }}</span>
+        <button @click="errorMessage = ''" class="error-dismiss">&times;</button>
+      </div>
+
       <div class="action-control-zone">
-        <!--Global Unified Progress Status HUD(Visible when 1+apps are downloading)-->
         <div v-if="globalInstallationActive" class="progress-container">
           <div class="progress-header">
             <span class="status-msg">{{globalStatusMessage}}</span>
@@ -46,18 +45,15 @@
             <div class="progress-bar" :style="{ width: globalProgressPercent + '%' }"></div>
           </div>
         </div>
-        <!--Default Search Button Trigger-->
-        <button v-else class="scan-btn" @click="scanGitHubMarketplace" :disabled="loading">
-          {{loading?'Scanning GitHub Ecosystem...':'Scan Remote Repositories'}}
-        </button>
+        <div v-if="totalCount > 0" class="scan-meta-row">
+          <span class="loaded-count">{{ loadedCount }} of {{ totalCount }} applets</span>
+        </div>
       </div>
 
-      <!--Discovered Remote Application Catalog Grid-->
       <div class="market-grid">
-        <!-- CHANGED: Now looping over filteredMarketplaceApps instead of marketplaceApps -->
-        <div v-for="app in filteredMarketplaceApps" :key="app.id" class="market-card" :class="{ 
-              'card-expanding-progress': app.isInstalling || app.isUninstalling,
-              'card-destructive-state': app.isUninstalling 
+        <div v-for="app in filteredMarketplaceApps" :key="app.id" class="market-card" :class="{
+              'card-expanding-progress': app.isInstalling || app.isUninstalling || app.statusError,
+              'card-destructive-state': app.isUninstalling
             }">
           <div class="card-main-content">
             <div class="market-icon-frame">
@@ -68,47 +64,47 @@
               <span class="app-developer">by {{app.owner}}</span>
               <span v-if="app.isAlreadyInstalled && !app.isInstalling && !app.isUninstalling" class="installed-tag">Locally Installed</span>
             </div>
-            <!--Dynamic Side-by-Side Action Layout Slot-->
             <div class="action-button-group">
-              <!--Destructive Uninstall Trigger(Only visible for installed,idle applets)-->
-              <button v-if="app.isAlreadyInstalled && !app.isInstalling && !app.isUninstalling" class="uninstall-btn" @click.stop="handleAppUninstall(app)" title="Uninstall Applet">
+              <button v-if="app.isAlreadyInstalled && !app.isInstalling && !app.isUninstalling && !app.builtIn" class="uninstall-btn" @click.stop="handleAppUninstall(app)" title="Uninstall Applet">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="trash-icon">
                   <polyline points="3 6 5 6 21 6"></polyline>
                   <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                 </svg>
               </button>
-              <!--Main Action Trigger-->
               <button class="action-btn" :class="{ 'btn-success': app.isInstalled || app.isAlreadyInstalled }" @click="handleAppAction(app)" :disabled="app.isUninstalling || app.isInstalling">
                 <span v-if="app.isInstalled || app.isAlreadyInstalled" class="success-content">
                   <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                     <polyline points="20 6 9 17 4 12"></polyline>
                   </svg>Open
                 </span>
-                <span v-else-if="app.isInstalling">Installing...</span>
-                <span v-else>Install</span>
+                <span v-else-if="app.isInstalling">Loading...</span>
+                <span v-else>{{ isHybrid || isOpfsAvailable() ? 'Install' : 'Load' }}</span>
               </button>
             </div>
           </div>
-          <!--Individual Item Micro Progress Track Inline Overlay(Shared for Install&Uninstall feedback)-->
-          <div v-if="app.isInstalling || app.isUninstalling" class="item-progress-zone">
-            <div class="item-progress-track">
+          <div v-if="app.isInstalling || app.isUninstalling || app.statusError" class="item-progress-zone">
+            <div v-if="app.isInstalling || app.isUninstalling" class="item-progress-track">
               <div class="item-progress-bar" :class="{ 'bar-destructive': app.isUninstalling }" :style="{ width: app.progressPercent + '%' }"></div>
             </div>
-            <span class="item-status-msg" :class="{ 'text-destructive': app.isUninstalling }">{{app.statusMessage}}</span>
+            <span class="item-status-msg" :class="{ 'text-destructive': app.isUninstalling || app.statusError }">{{app.statusMessage}}</span>
           </div>
         </div>
 
-        <!--System Processing Data Loading Overlay Display Spinner-->
         <div v-if="loading" class="loading-state">
           <div class="spinner"></div>
           <p>Fetching packages and checking local directories...</p>
         </div>
 
-        <!--Safe-guarded Length Empty State Indicator Fallback-->
-        <!-- CHANGED: Checks filteredMarketplaceApps length to provide an accurate query empty state -->
         <div v-if="(!filteredMarketplaceApps || filteredMarketplaceApps.length === 0) && !loading" class="empty-state">
           <span v-if="searchQuery">No uncompiled applets match your query.</span>
           <span v-else>Tap the scanning interface above to search for uncompiled packages.</span>
+        </div>
+
+        <div ref="scrollSentinel" class="scroll-sentinel">
+          <div v-if="loadingMore" class="spinner"></div>
+          <span v-else-if="!hasMorePages && currentPage > 0" class="end-message">
+            All {{ totalCount }} applets loaded
+          </span>
         </div>
       </div>
     </main>
@@ -116,20 +112,44 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, inject } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { DEFAULT_APP_ICON } from '../../lib/shell/constants.js'
-import { fsApi } from '../../lib/fs/index.js'
-import { fetchMarketplaceRepositories, fetchAppManifest } from './api.js'
+import { fsApi, isAndroidHybrid } from '../../lib/fs/index.js'
+import { fetchGitHubPage, enrichReposWithManifests, fetchLocalMarketplaceManifest, normalizeStaticEntry, fetchAppManifest } from './api.js'
 import { installRepositoryToStorage } from './installer.js'
 import { uninstallRepositoryFromStorage } from './uninstaller.js'
 import { marketplaceCache } from './cache.js'
+import { marketplaceConfig } from './config.js'
+import { opfsInstall, opfsUninstall, isOpfsInstalled, getOpfsInstalledApps, isOpfsAvailable } from './opfsInstaller.js'
+import { memoryInstall, memoryUninstall, isMemoryInstalled, getMemoryInstalledApps } from './memoryInstaller.js'
 
 const router = useRouter()
 const loading = ref(false)
+const loadingMore = ref(false)
 const searchQuery = ref('')
 const marketplaceApps = ref([])
 const shellCompiler = inject('shellCompiler')
+const isHybrid = ref(false)
+
+const currentPage = ref(0)
+const hasMorePages = ref(false)
+const totalCount = ref(0)
+const scrollSentinel = ref(null)
+let cacheState = marketplaceCache.load()
+let observer = null
+
+const searchResultsCache = new Map()
+const errorMessage = ref('')
+let errorDismissTimer = null
+
+function showError(msg) {
+  errorMessage.value = msg
+  clearTimeout(errorDismissTimer)
+  errorDismissTimer = setTimeout(() => { errorMessage.value = '' }, 6000)
+}
+
+const loadedCount = computed(() => marketplaceApps.value.filter(a => !a.isLocalOnly).length)
 
 const installingApps = computed(() => marketplaceApps.value.filter(app => app.isInstalling))
 const globalInstallationActive = computed(() => installingApps.value.length > 0)
@@ -153,166 +173,324 @@ const filteredMarketplaceApps = computed(() => {
   return marketplaceApps.value.filter(app => fuzzyPattern.test(app.name) || fuzzyPattern.test(app.id) || fuzzyPattern.test(app.owner))
 })
 
-// ◄ ZERO-KNOWLEDGE ALIGNMENT WIN: Both native sandboxing and standard web browser development models 
-// map directly from the uniform relative filesystem path 'src/apps'
-const appsTargetDir = 'src/apps';
-
 onMounted(async () => {
-  await loadEcosystemData()
+  isHybrid.value = await isAndroidHybrid()
+  await scanGitHubMarketplace()
+  setupInfiniteScroll()
 })
-const resolveCurrentAppsDirectory = async () => {
-  // Grabs the raw relative string directly ("www" or "Documents/MyHybridMobile/www")
-  const webRootModifier = await fsApi.getWebRoot(); 
 
-  // Since the backend never returns an empty string now, we construct the target path uniformly!
-  return `${webRootModifier}/src/apps`;
+onUnmounted(() => {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+})
+
+let searchDebounceTimer = null
+watch(searchQuery, () => {
+  clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    scanGitHubMarketplace()
+  }, marketplaceConfig.searchDebounceMs)
+})
+
+const resolveCurrentAppsDirectory = async () => {
+  const webRootModifier = await fsApi.getWebRoot();
+  return webRootModifier ? `${webRootModifier}/src/apps` : 'src/apps';
 };
 
-const loadEcosystemData = async () => {
-  try {
-    // Queries the native file endpoint relatively. Java automatically anchors this to the correct root!
-    const appsTargetDir = await resolveCurrentAppsDirectory(); // ◄ Dynamic Relative Resolution
-    const localFsResponse = await fsApi.listDirectory(appsTargetDir);
-    const localFolderNames = (localFsResponse && localFsResponse.files) ? localFsResponse.files.filter(f => f.isDirectory).map(f => f.name) : [];
-    const remoteApps = marketplaceCache.get()
-    
-    const mappedRemoteApps = remoteApps.map(app => ({
-      ...app,
-      isAlreadyInstalled: localFolderNames.includes(app.id),
-      isInstalling: false,
-      isUninstalling: false,
-      progressPercent: 0,
-      statusMessage: ''
-    }))
-    
-    const remoteSlugs = mappedRemoteApps.map(a => a.id)
-    const localOnlyApps = []
-    
-    for (const folderName of localFolderNames) {
-      if (!remoteSlugs.includes(folderName)) {
-        let appName = folderName
-        let svgIcon = DEFAULT_APP_ICON
-        try {
-          const rawManifestText = await fsApi.readFile(`${appsTargetDir}/${folderName}/app.json`)
-          const manifest = JSON.parse(rawManifestText)
-          if (manifest.name) appName = manifest.name
-          if (manifest.svgContent) svgIcon = manifest.svgContent
-        } catch (e) {
-          console.warn(`No offline manifest layout profile resolved for custom workspace app: ${folderName}`)
-        }
-        localOnlyApps.push({
-          id: folderName,
-          name: appName,
-          owner: 'local',
-          fullName: `local/${folderName}`,
-          branch: 'workspace',
-          svgContent: svgIcon,
-          isInstalled: false,
-          isAlreadyInstalled: true,
-          isLocalOnly: true,
-          isInstalling: false,
-          isUninstalling: false,
-          progressPercent: 0,
-          statusMessage: ''
-        })
-      }
+async function getInstalledIds() {
+  const appsTargetDir = await resolveCurrentAppsDirectory()
+  const localFsResponse = await fsApi.listDirectory(appsTargetDir)
+  const localFolderNames = (localFsResponse && localFsResponse.files)
+    ? localFsResponse.files.filter(f => f.isDirectory).map(f => f.name)
+    : []
+  const browserInstalledApps = isOpfsAvailable() ? await getOpfsInstalledApps() : getMemoryInstalledApps()
+  const browserInstalledIds = new Set(browserInstalledApps.map(a => a.id))
+  const installedIds = new Set([...localFolderNames, ...browserInstalledIds])
+  return { localFolderNames, installedIds }
+}
+
+function makeCard(entry, installedIds, extra = {}) {
+  return {
+    ...entry,
+    isAlreadyInstalled: installedIds.has(entry.id),
+    isInstalling: false,
+    isUninstalling: false,
+    statusError: false,
+    progressPercent: 0,
+    statusMessage: '',
+    ...extra
+  }
+}
+
+async function loadFromCache() {
+  cacheState = marketplaceCache.load()
+  const { localFolderNames, installedIds } = await getInstalledIds()
+
+  const staticEntries = (cacheState.staticEntries || []).map(e =>
+    makeCard(e, installedIds)
+  )
+
+  const cachedPages = []
+  for (let p = 1; p <= (cacheState.currentPage || 0); p++) {
+    const pageEntries = marketplaceCache.getPage(cacheState, p)
+    cachedPages.push(...pageEntries)
+  }
+  const pageCards = cachedPages
+    .filter(e => !staticEntries.some(s => s.id === e.id))
+    .map(e => makeCard(e, installedIds))
+
+  const localOnlyApps = await buildLocalOnlyApps(localFolderNames, [...staticEntries, ...pageCards])
+
+  currentPage.value = cacheState.currentPage || 0
+  hasMorePages.value = cacheState.hasMore || false
+  totalCount.value = cacheState.totalCount || 0
+
+  marketplaceApps.value = [...localOnlyApps, ...staticEntries, ...pageCards]
+}
+
+async function buildLocalOnlyApps(localFolderNames, remoteEntries) {
+  const remoteSlugs = new Set(remoteEntries.map(a => a.id))
+  const appsTargetDir = await resolveCurrentAppsDirectory()
+  const localOnlyApps = []
+
+  for (const folderName of localFolderNames) {
+    if (remoteSlugs.has(folderName)) continue
+    let appName = folderName
+    let svgIcon = DEFAULT_APP_ICON
+    let isBuiltIn = false
+    try {
+      const rawManifestText = await fsApi.readFile(`${appsTargetDir}/${folderName}/app.json`)
+      const manifest = JSON.parse(rawManifestText)
+      if (manifest.name) appName = manifest.name
+      if (manifest.svgContent) svgIcon = manifest.svgContent
+      if (manifest.builtIn === true) isBuiltIn = true
+    } catch (_) { /* keep defaults */ }
+    localOnlyApps.push(makeCard({
+      id: folderName,
+      name: appName,
+      owner: 'local',
+      fullName: `local/${folderName}`,
+      branch: 'workspace',
+      svgContent: svgIcon,
+      builtIn: isBuiltIn
+    }, new Set([folderName]), { isLocalOnly: true }))
+  }
+
+  return localOnlyApps
+}
+
+function mergeEntries(newEntries, installedIds) {
+  const localApps = marketplaceApps.value.filter(a => a.isLocalOnly)
+  const remoteApps = marketplaceApps.value.filter(a => !a.isLocalOnly)
+  const remoteIds = new Set(remoteApps.map(a => a.id))
+
+  for (const entry of newEntries) {
+    if (remoteIds.has(entry.id)) continue
+    const card = makeCard(entry, installedIds)
+    remoteApps.push(card)
+    remoteIds.add(entry.id)
+  }
+
+  // Promote any isLocalOnly card that now has a remote counterpart
+  const promotedLocalIds = new Set(newEntries.map(e => e.id))
+  const remainingLocal = localApps.filter(a => !promotedLocalIds.has(a.id))
+
+  marketplaceApps.value = [...remainingLocal, ...remoteApps]
+}
+
+function setupInfiniteScroll() {
+  observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && hasMorePages.value && !loadingMore.value && !loading.value) {
+      loadNextPage()
     }
-    marketplaceApps.value = [...localOnlyApps, ...mappedRemoteApps]
+  }, { rootMargin: '200px' })
+
+  if (scrollSentinel.value) {
+    observer.observe(scrollSentinel.value)
+  }
+}
+
+async function loadNextPage() {
+  loadingMore.value = true
+  try {
+    const nextPage = currentPage.value + 1
+    const query = searchQuery.value.trim()
+    const { items, hasMore, totalCount: total } = await fetchGitHubPage(nextPage, marketplaceConfig.pageSize, query)
+    hasMorePages.value = hasMore
+    totalCount.value = total
+
+    const entries = await enrichReposWithManifests(items, marketplaceConfig.manifestConcurrency)
+
+    if (!query) {
+      marketplaceCache.setPage(cacheState, nextPage, entries)
+      marketplaceCache.setPaginationMeta(cacheState, { hasMore, totalCount: total })
+    }
+
+    const { installedIds } = await getInstalledIds()
+    mergeEntries(entries, installedIds)
+    currentPage.value = nextPage
   } catch (err) {
-    console.error('Failed synthesizing cached ecosystem index mappings:', err)
+    console.error('Failed loading next marketplace page:', err)
+    hasMorePages.value = false
+  } finally {
+    loadingMore.value = false
   }
 }
 
 const scanGitHubMarketplace = async () => {
   loading.value = true
   try {
-    const appsTargetDir = await resolveCurrentAppsDirectory(); // ◄ Dynamic Relative Resolution
-    const localFsResponse = await fsApi.listDirectory(appsTargetDir)
-    const localFolderNames = (localFsResponse && localFsResponse.files) ? localFsResponse.files.filter(f => f.isDirectory).map(f => f.name) : []
-    const repos = await fetchMarketplaceRepositories()
-    const freshRemoteIndex = []
-    
-    for (const repo of repos) {
-      const branchName = repo.default_branch || 'main'
-      const cleanSlug = repo.name.replace('ahm-applet-', '')
-      let appName = cleanSlug
-      let svgIcon = DEFAULT_APP_ICON
+    const { localFolderNames, installedIds } = await getInstalledIds()
+    const query = searchQuery.value.trim()
+
+    let staticEntries = []
+    if (!query) {
       try {
-        const manifest = await fetchAppManifest(repo.full_name, branchName)
-        if (manifest.name) appName = manifest.name
-        if (manifest.svgContent) svgIcon = manifest.svgContent
-      } catch (err) {
-        console.warn(`Skipped manifest descriptor read for ${repo.name}`)
-      }
-      freshRemoteIndex.push({ id: cleanSlug, name: appName, owner: repo.owner.login, fullName: repo.full_name, branch: branchName, svgContent: svgIcon })
+        const local = await fetchLocalMarketplaceManifest()
+        if (local && local.length > 0) {
+          staticEntries = local.map(normalizeStaticEntry)
+        }
+      } catch (_) { /* no static manifest */ }
     }
-    marketplaceCache.set(freshRemoteIndex)
-    await loadEcosystemData()
+
+    currentPage.value = 0
+    hasMorePages.value = false
+    totalCount.value = 0
+    marketplaceApps.value = []
+
+    const localOnlyApps = await buildLocalOnlyApps(localFolderNames, staticEntries)
+    const staticCards = staticEntries.map(e => makeCard(e, installedIds))
+
+    marketplaceApps.value = [...localOnlyApps, ...staticCards]
+
+    if (!query) {
+      marketplaceCache.setStaticEntries(cacheState, staticEntries)
+
+      const cacheIsFresh = cacheState.lastScan && cacheState.currentPage > 0 &&
+        (Date.now() - cacheState.lastScan) < marketplaceConfig.githubThrottleMs
+
+      if (cacheIsFresh) {
+        await loadFromCache()
+        return
+      }
+    }
+
+    const cachedSearch = searchResultsCache.get(query)
+    if (cachedSearch && (Date.now() - cachedSearch.timestamp) < marketplaceConfig.githubThrottleMs) {
+      hasMorePages.value = cachedSearch.hasMore
+      totalCount.value = cachedSearch.totalCount
+      currentPage.value = 1
+      mergeEntries(cachedSearch.entries, installedIds)
+      return
+    }
+
+    const { items, hasMore, totalCount: total } = await fetchGitHubPage(1, marketplaceConfig.pageSize, query)
+    hasMorePages.value = hasMore
+    totalCount.value = total
+
+    const pageEntries = await enrichReposWithManifests(items, marketplaceConfig.manifestConcurrency)
+
+    if (!query) {
+      marketplaceCache.setPage(cacheState, 1, pageEntries)
+      marketplaceCache.setPaginationMeta(cacheState, { hasMore, totalCount: total })
+    }
+    searchResultsCache.set(query, { entries: pageEntries, hasMore, totalCount: total, timestamp: Date.now() })
+    currentPage.value = 1
+
+    mergeEntries(pageEntries, installedIds)
   } catch (error) {
     console.error('Marketplace repository scanning failed:', error)
-    alert('Failed searching GitHub ecosystem networks. Reverting to cached indexes.')
+    showError(error.message || 'Marketplace scan failed')
+    await loadFromCache()
   } finally {
     loading.value = false
   }
 }
 
 const handleAppAction = async (app) => {
-
   if (app.isLocalOnly || app.isInstalled || app.isAlreadyInstalled) {
     router.push('/apps/' + app.id)
     return
   }
-  
+
   if (app.isInstalling || app.isUninstalling) return
-  
+
+  app.statusError = false
   app.isInstalling = true
   app.progressPercent = 5
   app.statusMessage = 'Connecting stream allocations...'
-  
+
   try {
-    const appsTargetDir = await resolveCurrentAppsDirectory(); // ◄ Dynamic Relative Resolution
-    // Triggers your refactored relative installer loop cleanly
-    await installRepositoryToStorage(app, appsTargetDir, (percent, customMessage) => {
-      app.progressPercent = percent
-      app.statusMessage = customMessage
-    })
-    
-    app.progressPercent = 90
-    app.statusMessage = 'Bootstrapping component context sandboxes...'
-    const computedDefaultRoute = '/apps/' + app.id
-    const computedEntryFile = `./src/apps/${app.id}/index.vue`
-    
-    if (router.hasRoute(app.id)) {
-      router.removeRoute(app.id)
+    if (isHybrid.value) {
+      const appsTargetDir = await resolveCurrentAppsDirectory()
+      await installRepositoryToStorage(app, appsTargetDir, (percent, msg) => {
+        app.progressPercent = percent
+        app.statusMessage = msg
+      })
+
+      let manifest = {}
+      try {
+        const manifestRaw = await fsApi.readFile(`${appsTargetDir}/${app.id}/app.json`)
+        manifest = JSON.parse(manifestRaw)
+      } catch (e) {
+        console.warn(`Could not read installed manifest for ${app.id}; falling back to SFC defaults`, e.message)
+      }
+
+      const descriptor = {
+        id: app.id,
+        name: manifest.name || app.name,
+        route: manifest.route || '/apps/' + app.id,
+        svgContent: manifest.svgContent || app.svgContent,
+        type: manifest.type || 'sfc',
+        entryFile: `./src/apps/${app.id}/${manifest.entry || 'index.vue'}`,
+        files: manifest.files,
+        params: manifest.params
+      }
+
+      if (router.hasRoute(app.id)) router.removeRoute(app.id)
+      router.addRoute({
+        name: app.id,
+        path: descriptor.route,
+        component: () => shellCompiler(descriptor)
+      })
+    } else {
+      const installer = isOpfsAvailable() ? opfsInstall : memoryInstall
+      await installer(app, shellCompiler, router, (percent, msg) => {
+        app.progressPercent = percent
+        app.statusMessage = msg
+      })
     }
-    router.addRoute({
-      name: app.id,
-      path: computedDefaultRoute,
-      component: () => shellCompiler(computedEntryFile)
-    })
-    
+
     app.progressPercent = 100
-    app.statusMessage = 'Activated!'
+    app.statusMessage = 'Installed'
     app.isAlreadyInstalled = true
-    setTimeout(() => {
-      app.isInstalling = false
-    }, 1200)
+    setTimeout(() => { app.isInstalling = false }, 1200)
   } catch (err) {
-    console.error(`[Concurrent Installer Intercepted on ${app.id}]:`, err.message)
-    alert(`Download pipeline dropped for ${app.name}: ` + err.message)
+    console.error(`[Installer error on ${app.id}]:`, err.message)
+    app.statusMessage = err.message
+    app.statusError = true
     app.isInstalling = false
   }
 }
 
 const handleAppUninstall = async (app) => {
-  const confirmEcosystemPurge = true;
-  if (!confirmEcosystemPurge) return
+  if (app.builtIn) return
   app.isUninstalling = true
   try {
-    await uninstallRepositoryFromStorage(app, appsTargetDir, router, (percent, customMessage) => {
-      app.progressPercent = percent
-      app.statusMessage = customMessage
-    })
+    app.statusMessage = 'Uninstalling...'
+    if (isHybrid.value) {
+      const appsTargetDir = await resolveCurrentAppsDirectory()
+      await uninstallRepositoryFromStorage(app, appsTargetDir, router, (percent, msg) => {
+        app.progressPercent = percent
+        app.statusMessage = msg
+      })
+    } else {
+      const uninstaller = isOpfsAvailable() ? opfsUninstall : memoryUninstall
+      await uninstaller(app, router)
+    }
+
     if (app.isLocalOnly) {
       marketplaceApps.value = marketplaceApps.value.filter(a => a.id !== app.id)
     } else {
@@ -324,8 +502,9 @@ const handleAppUninstall = async (app) => {
       app.statusMessage = ''
     }, 1200)
   } catch (err) {
-    console.error(`[Ecosystem Uninstallation Transaction Aborted on ${app.id}]:`, err.message)
-    alert(`Failed to clean applet assets: ${err.message}`)
+    console.error(`[Uninstall error on ${app.id}]:`, err.message)
+    app.statusMessage = err.message
+    app.statusError = true
     app.isUninstalling = false
   }
 }
@@ -348,6 +527,10 @@ const goHome = () => {
   align-items: center;
   padding: 40px 24px 16px 24px;
   border-bottom: 1px solid #16161a;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: #0a0a0c;
 }
 
 .back-btn {
@@ -381,11 +564,37 @@ const goHome = () => {
   gap: 20px;
 }
 
+.error-banner {
+  background-color: rgba(255, 69, 58, 0.1);
+  border: 1px solid rgba(255, 69, 58, 0.3);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #ff453a;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.error-dismiss {
+  background: none;
+  border: none;
+  color: #ff453a;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 0 0 12px;
+  line-height: 1;
+}
+
 .action-control-zone {
   width: 100%;
-  height: 48px;
+  min-height: 48px;
   position: relative;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .scan-btn {
@@ -409,6 +618,20 @@ const goHome = () => {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.scan-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.loaded-count {
+  font-size: 12px;
+  color: #636366;
+  white-space: nowrap;
+}
+
 
 .progress-container {
   background-color: #16161a;
@@ -486,7 +709,6 @@ const goHome = () => {
   border-color: #2c2c35;
 }
 
-/* Subtle amber shift to visually denote file destructive operations are processing */
 .market-card.card-destructive-state {
   background-color: #1a1112;
   border-color: rgba(255, 69, 58, 0.2);
@@ -591,7 +813,6 @@ const goHome = () => {
   height: 14px;
 }
 
-/* Minimalist Low-Profile Trash Button Layout */
 .uninstall-btn {
   background: none;
   border: none;
@@ -638,7 +859,6 @@ const goHome = () => {
   transition: width 0.1s linear;
 }
 
-/* Turns mini tracker red during uninstall loops */
 .item-progress-bar.bar-destructive {
   background-color: #ff453a;
 }
@@ -684,14 +904,29 @@ const goHome = () => {
   line-height: 1.5;
 }
 
+.scroll-sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+  min-height: 48px;
+}
+
+.end-message {
+  font-size: 13px;
+  color: #48484a;
+}
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
-/* -------------------------------------------------------------------------------- */
-/* search */
-/* -------------------------------------------------------------------------------- */
 .search-zone {
   width: 100%;
+  position: sticky;
+  top: 81px;
+  z-index: 10;
+  padding: 0 0 8px 0;
+  background-color: #0a0a0c;
 }
 .search-input-wrapper {
   position: relative;
@@ -736,6 +971,4 @@ const goHome = () => {
   align-items: center;
   justify-content: center;
 }
-
 </style>
-

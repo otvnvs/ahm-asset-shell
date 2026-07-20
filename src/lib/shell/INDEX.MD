@@ -1,35 +1,54 @@
 # Runtime Shell Orchestration Engine (`index.js`)
 
-This file drives the plug-and-play app ecosystem. It scans your physical folder structures at runtime, parses any discoverable manifest criteria, and dynamically computes component entry locations for the client-side compiler.
+This module drives the plug-and-play app ecosystem. It scans available applet directories at runtime, parses their manifests, and returns structured definitions consumed by the router and the home launcher.
 
-## Core Operations
+---
 
-### 1. Automated Application Discovery
-The module exports an asynchronous scanner engine called `scanForApps()`. This engine performs a zero-configuration tree search across your codebase:
-1. Calls `fsApi.listDirectory()` on the designated storage path resolved by your filesystem settings.
-2. Filters out files to isolate valid application directory boundaries (`item.isDirectory`).
+## `scanForApps()`
 
-### 2. Zero-Configuration Path Calculation
-The scanner completely automates target routing structures. Instead of requiring developers to manually write absolute paths inside a configuration file, the script calculates entry nodes on-the-fly using folder conventions:
-* **Calculated File Target Structure:** `./src/apps/[folderName]/index.vue`
+Asynchronous function that discovers all installed applets and returns a uniform array of app definitions.
 
-### 3. Graceful Manifest De-serialization
-The scanner attempts to read the manifest file (`app.json`) inside each application folder:
-* **Successful Read:** Parses metadata to hydrate custom application dashboard items, grid labels, and specific router parameters.
-* **Fallback Lifecycle Interception:** If a module is missing an explicit `app.json` file, the scanner catches the error gracefully. It populates the dashboard using an uppercase folder name string and applies the default system icon template so that the app remains stable and operational.
+### How it works
 
-## Data Schema Blueprint
-The `scanForApps()` method returns a uniform array of app definitions formatted for the dashboard and router registration loops:
+1. Calls `fsApi.getWebRoot()` to resolve the active path prefix.
+2. Builds `appsTargetDir` — `src/apps` on web, or `<webRoot>/src/apps` on AHM.
+3. Calls `fsApi.listDirectory(appsTargetDir)` to enumerate subdirectories.
+4. For each subdirectory, attempts to read and parse `app.json` via `fsApi.readFile()`.
+5. Falls back to an uppercase folder name and the default icon if `app.json` is missing or invalid.
+
+### Backend behaviour
+
+| Environment | `listDirectory` source | `readFile` source |
+|---|---|---|
+| Web browser | `src/apps/apps.json` static manifest | `fetch()` against server root |
+| Android Hybrid Mobile | `GET /api/fs/list` native endpoint | `GET /api/fs/read` native endpoint |
+
+Both paths go through `fsApi` transparently — `scanForApps` has no environment-specific branching.
+
+### Return schema
 
 ```json
 [
   {
-    "id": "todo",
-    "name": "Task Master",
-    "route": "/apps/todo",
-    "svgContent": "<path d=...",
-    "entryFile": "./src/apps/todo/index.vue"
+    "id": "marketplace",
+    "name": "Marketplace",
+    "route": "/apps/marketplace",
+    "svgContent": "<circle ...",
+    "entryFile": "./src/apps/marketplace/index.vue"
   }
 ]
 ```
 
+| Field | Source |
+|---|---|
+| `id` | Folder name |
+| `name` | `app.json` → `name`, or uppercased folder name |
+| `route` | `app.json` → `route`, or `/apps/<id>` |
+| `svgContent` | `app.json` → `svgContent`, or `DEFAULT_APP_ICON` |
+| `entryFile` | Always `./src/apps/<id>/index.vue` |
+
+### Adding a new applet
+
+1. Create `src/apps/<id>/index.vue` and `src/apps/<id>/app.json`.
+2. **Web mode only:** add an entry to `src/apps/apps.json`. See `src/apps/APPS.md`.
+3. On AHM the native filesystem is scanned directly — no manifest file is required.
